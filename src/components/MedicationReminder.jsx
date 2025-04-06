@@ -1,87 +1,205 @@
-import React from 'react';
-import { Clock, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Clock, Check, Plus, AlertCircle, Pill, Edit } from 'lucide-react';
+import { MedicationService } from '../services/MedicationService';
+import MedicationModal from '../components/MedicationModal';
 
-const MedicationReminders = () => {
-  // Sample data - In a real app, this would come from an API
-  const medications = [
-    {
-      id: 1,
-      name: 'Lisinopril 10mg',
-      instructions: '1 tablet daily with food',
-      nextDose: '08:00 AM',
-      refillDate: '2025-04-15',
-      remaining: '15 tablets',
-      status: 'taken'
-    },
-    {
-      id: 2,
-      name: 'Metformin 500mg',
-      instructions: '1 tablet twice daily',
-      nextDose: '12:30 PM',
-      refillDate: '2025-04-20',
-      remaining: '22 tablets',
-      status: 'upcoming'
-    },
-    {
-      id: 3,
-      name: 'Atorvastatin 20mg',
-      instructions: '1 tablet at bedtime',
-      nextDose: '09:00 PM',
-      refillDate: '2025-04-28',
-      remaining: '18 tablets',
-      status: 'upcoming'
-    }
-  ];
-
-  return (
-    <div className="space-y-4">
-      {medications.map((med) => (
-        <div 
-          key={med.id} 
-          className={`border rounded-lg p-3 ${
-            med.status === 'taken' 
-              ? 'border-green-100 bg-green-50' 
-              : 'border-orange-100 bg-orange-50'
-          }`}
-        >
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="font-medium">{med.name}</div>
-              <div className="text-sm text-slate-600">{med.instructions}</div>
-            </div>
-            {med.status === 'taken' ? (
-              <div className="bg-green-500 p-1 rounded-full">
-                <Check size={14} className="text-white" />
-              </div>
-            ) : null}
-          </div>
-          
-          <div className="mt-2 flex items-center text-sm">
-            <Clock size={14} className="mr-1 text-slate-500" />
-            <span className="text-slate-700">Next dose: {med.nextDose}</span>
-          </div>
-          
-          <div className="mt-3 text-xs text-slate-500 flex justify-between">
-            <span>Refill by: {new Date(med.refillDate).toLocaleDateString()}</span>
-            <span>{med.remaining} left</span>
-          </div>
-          
-          {med.status !== 'taken' && (
-            <button className="mt-2 w-full bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded text-sm">
-              Mark as Taken
-            </button>
-          )}
-        </div>
-      ))}
+const MedicationReminders = ({ onDataChange }) => {
+  const [medications, setMedications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [currentMedication, setCurrentMedication] = useState(null);
+  
+  // Fetch medications on component mount
+  useEffect(() => {
+    fetchMedications();
+    
+    // Set up periodic refresh (every 60 seconds)
+    const intervalId = setInterval(() => {
+      fetchMedications();
+    }, 60000);
+    
+    // Clean up interval on component unmount
+    return () => clearInterval(intervalId);
+  }, []);
+  
+  const fetchMedications = async () => {
+    try {
+      setLoading(true);
+      const data = await MedicationService.getTodayMedications();
+      setMedications(data);
+      setError(null);
       
-      <div className="mt-4">
-        <button className="text-blue-500 hover:text-blue-700 text-sm flex items-center justify-center w-full">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="mr-1">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Add Medication
+      // Notify parent component about data change if callback exists
+      if (onDataChange) {
+        onDataChange();
+      }
+    } catch (err) {
+      setError('Failed to load medications');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Handle marking medication as taken
+  const handleMarkAsTaken = async (medicationId) => {
+    try {
+      await MedicationService.markAsTaken(medicationId);
+      
+      // Update local state to reflect change
+      setMedications(medications.map(med => 
+        med.id === medicationId ? { ...med, status: 'taken' } : med
+      ));
+      
+      // Explicitly call onDataChange to update the dashboard stats
+      if (onDataChange) {
+        onDataChange();
+      }
+    } catch (err) {
+      setError('Failed to update medication status');
+      console.error(err);
+    }
+  };
+  
+  // Open modal for editing an existing medication
+  const handleEditMedication = (medication) => {
+    setCurrentMedication(medication);
+    setModalOpen(true);
+  };
+  
+  // Handle adding a new medication
+  const handleAddMedication = () => {
+    setCurrentMedication(null); // Reset to null for a new medication
+    setModalOpen(true);
+  };
+  
+  // Handle saving medication (either add or update)
+  const handleSaveMedication = () => {
+    fetchMedications(); // Refresh the medication list
+  };
+  
+  // Handle deleting a medication
+  const handleDeleteMedication = (medicationId) => {
+    setMedications(medications.filter(med => med.id !== medicationId));
+    
+    // Notify parent component about data change
+    if (onDataChange) {
+      onDataChange();
+    }
+  };
+  
+  if (loading && medications.length === 0) return (
+    <div className="flex items-center justify-center p-8 text-gray-500">
+      <div className="animate-pulse flex space-x-2">
+        <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+        <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+        <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
+      </div>
+      <span className="ml-2">Loading medications...</span>
+    </div>
+  );
+  
+  if (error) return (
+    <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-red-700 flex items-center">
+      <AlertCircle size={20} className="mr-2" />
+      <span>Error: {error}</span>
+    </div>
+  );
+  
+  // Sort medications - upcoming first, then taken
+  const sortedMedications = [...medications].sort((a, b) => {
+    // First sort by status (upcoming before taken)
+    if (a.status === 'upcoming' && b.status !== 'upcoming') return -1;
+    if (a.status !== 'upcoming' && b.status === 'upcoming') return 1;
+    
+    // Then sort by next_dose time
+    return a.next_dose.localeCompare(b.next_dose);
+  });
+  
+  return (
+    <div className="max-w-md mx-auto">
+      <h2 className="text-xl font-semibold mb-4 text-gray-800">Today's Medications</h2>
+      
+      {sortedMedications.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <Pill size={40} className="mx-auto mb-2 opacity-50" />
+          <p>No medications scheduled for today</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {sortedMedications.map((med) => (
+            <div 
+              key={med.id} 
+              className={`bg-white rounded-lg shadow-sm border p-4 transition-all 
+                ${med.status === 'taken' ? 'border-green-200 bg-green-50' : 'border-gray-200 hover:shadow'}`}
+            >
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex-1">
+                  <h3 className="font-medium text-gray-800">{med.name}</h3>
+                  <p className="text-sm text-gray-600">{med.instructions}</p>
+                </div>
+                
+                <div className="flex items-center">
+                  {med.status === 'taken' && (
+                    <div className="bg-green-100 text-green-600 p-1 rounded-full">
+                      <Check size={18} />
+                    </div>
+                  )}
+                  
+                  <button 
+                    onClick={() => handleEditMedication(med)}
+                    className="ml-2 p-1 text-gray-500 hover:text-gray-700"
+                    aria-label="Edit medication"
+                  >
+                    <Edit size={16} />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex items-center text-sm text-gray-600 mb-2">
+                <Clock size={14} className="mr-1" />
+                <span>Next dose: {med.next_dose}</span>
+              </div>
+              
+              <div className="text-sm text-gray-600 mb-3 flex justify-between">
+                <span>Refill by: {new Date(med.refill_date).toLocaleDateString()}</span>
+                <span className={med.remaining < 5 ? 'text-amber-600 font-medium' : ''}>
+                  {med.remaining} remaining
+                </span>
+              </div>
+              
+              {med.status !== 'taken' && (
+                <button 
+                  className="w-full mt-2 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  onClick={() => handleMarkAsTaken(med.id)}
+                >
+                  Mark as Taken
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      
+      <div className="mt-6">
+        <button 
+          onClick={handleAddMedication}
+          className="flex items-center justify-center w-full py-3 px-4 rounded-md border border-dashed border-gray-300 text-blue-600 hover:bg-blue-50 transition-colors"
+        >
+          <Plus size={18} className="mr-1" />
+          <span>Add Medication</span>
         </button>
       </div>
+      
+      {/* Medication Modal */}
+      <MedicationModal 
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        medication={currentMedication}
+        onSave={handleSaveMedication}
+        onDelete={handleDeleteMedication}
+      />
     </div>
   );
 };

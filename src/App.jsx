@@ -1,15 +1,17 @@
 import React from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import MedicalChatbot from './pages/MedicalChatbot';
-import Dashboard from './pages/Dashboard'; // Import Dashboard page
+import Dashboard from './pages/Dashboard';
+import AddMedication from './pages/AddMedication'; // Import the new component
 
 function App() {
   return (
     <Router>
       <div className="min-h-screen bg-gray-100">
         <Routes>
-          <Route path="/" element={<MedicalChatbot />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/chatbot" element={<MedicalChatbot />} />
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/medications/add" element={<AddMedication />} /> {/* Add this new route */}
         </Routes>
       </div>
     </Router>
@@ -17,4 +19,3 @@ function App() {
 }
 
 export default App;
-

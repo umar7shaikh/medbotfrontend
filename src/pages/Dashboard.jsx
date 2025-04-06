@@ -1,16 +1,53 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import StatCard from '../components/StatCard';
 import AppointmentCalendar from '../components/AppointmentCalendar';
 import HealthTrackers from '../components/HealthTrackers';
 import ChatbotAccess from '../components/ChatbotAccess';
 import MedicationReminders from '../components/MedicationReminder';
 import { Calendar, Activity, FileText, MessageSquare, Bell, Clipboard } from 'lucide-react';
+import { MedicationService } from '../services/MedicationService';
 
 const Dashboard = () => {
+  const [medicationCount, setMedicationCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Function to update medication count
+  const updateMedicationCount = async () => {
+    setIsLoading(true);
+    try {
+      const data = await MedicationService.getTodayMedications();
+      // Filter only active/upcoming medications (not taken)
+      const activeMeds = data.filter(med => med.status !== 'taken');
+      setMedicationCount(activeMeds.length);
+    } catch (error) {
+      console.error('Failed to update medication count:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch medication count when component mounts
+  useEffect(() => {
+    updateMedicationCount();
+    
+    // Set up a refresh interval for the medication count
+    const intervalId = setInterval(() => {
+      updateMedicationCount();
+    }, 30000); // Refresh every 30 seconds
+    
+    // Clean up interval on component unmount  
+    return () => clearInterval(intervalId);
+  }, []);
+
   // Sample data - in a real app this would come from API
   const stats = [
     { title: 'Upcoming Appointments', value: '2', icon: <Calendar size={20} />, color: 'bg-blue-500' },
-    { title: 'Active Medications', value: '3', icon: <FileText size={20} />, color: 'bg-green-500' },
+    { 
+      title: 'Active Medications', 
+      value: isLoading ? '...' : medicationCount.toString(), 
+      icon: <FileText size={20} />, 
+      color: 'bg-green-500' 
+    },
     { title: 'Health Score', value: '84%', icon: <Activity size={20} />, color: 'bg-indigo-500' },
     { title: 'Messages', value: '5', icon: <MessageSquare size={20} />, color: 'bg-purple-500' },
   ];
@@ -51,7 +88,7 @@ const Dashboard = () => {
             <Bell size={18} className="mr-2 text-green-500" />
             Medication Reminders
           </h2>
-          <MedicationReminders />
+          <MedicationReminders onDataChange={updateMedicationCount} />
         </div>
 
         {/* Health Trackers */}
