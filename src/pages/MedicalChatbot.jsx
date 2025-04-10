@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FaMicrophone, FaStopCircle, FaVolumeUp, FaVolumeMute, FaPause, FaPlay, FaUpload, FaPaperPlane, FaRobot, FaUser, FaTrash } from 'react-icons/fa';
+import axios from 'axios';
 
 const MedicalChatbot = () => {
+  // State variables
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -12,45 +14,40 @@ const MedicalChatbot = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  
+  // State variables for audio recording
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [selectedLanguage, setSelectedLanguage] = useState('en'); // Default language
+  
+  // Refs
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const currentUtteranceRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
   
-  // Speech recognition setup
-  const [recognition, setRecognition] = useState(null);
-  
+  // Available languages for speech recognition
+  const availableLanguages = [
+    { code: 'en', name: 'English' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'fr', name: 'French' },
+    { code: 'de', name: 'German' },
+    { code: 'zh', name: 'Chinese' },
+    { code: 'hi', name: 'Hindi' },
+    { code: 'ar', name: 'Arabic' },
+    { code: 'ru', name: 'Russian' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'pt', name: 'Portuguese' },
+  ];
+
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
-    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognitionInstance = new SpeechRecognition();
-      recognitionInstance.lang = 'en-US';
-      recognitionInstance.continuous = true;
-      recognitionInstance.interimResults = false;
-      
-      recognitionInstance.onresult = (event) => {
-        const transcript = event.results[event.results.length - 1][0].transcript;
-        if (transcript.trim()) {
-          setInputText(transcript);
-        }
-      };
-      
-      recognitionInstance.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-      };
-      
-      recognitionInstance.onend = () => {
-        if (isListening) {
-          recognitionInstance.start();
-        } else {
-          setIsListening(false);
-        }
-      };
-      
-      setRecognition(recognitionInstance);
-    }
-    
-    // Setup speech synthesis handlers
+    scrollToBottom();
+  }, [messages]);
+  
+  // Setup speech synthesis handlers
+  useEffect(() => {
     if ('speechSynthesis' in window) {
       speechSynthesis.onvoiceschanged = () => {
         // Optional: Set preferred voice when voices load
@@ -58,9 +55,6 @@ const MedicalChatbot = () => {
     }
     
     return () => {
-      if (recognition) {
-        recognition.abort();
-      }
       // Cancel any ongoing speech when component unmounts
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
@@ -83,11 +77,6 @@ const MedicalChatbot = () => {
     }
   }, [isSpeaking]);
   
-  // Auto-scroll to bottom when messages change
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -97,6 +86,110 @@ const MedicalChatbot = () => {
     setMessages(prevMessages => [...prevMessages, { content, type, imageUrl }]);
   };
   
+  // Start recording audio
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm', // Most compatible format
+      });
+      
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      
+      mediaRecorder.addEventListener('dataavailable', event => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      });
+      
+      mediaRecorder.addEventListener('stop', () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(audioBlob);
+        
+        // Immediately send audio to backend after recording
+        if (audioChunksRef.current.length > 0) {
+          processAudioInput(audioBlob);
+        }
+        
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+      });
+      
+      mediaRecorder.start();
+      setIsRecording(true);
+      setIsListening(true); // For UI feedback
+      
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
+      alert('Could not access your microphone. Please check your browser permissions.');
+      setIsListening(false);
+    }
+  };
+  
+  // Stop recording audio
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      setIsListening(false);
+    }
+  };
+  
+  // Process recorded audio by sending to backend
+  const processAudioInput = async (audioBlob) => {
+    if (!audioBlob) return;
+    
+    setIsLoading(true);
+    addMessage('Processing voice input...', 'user');
+    
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+      formData.append('language', selectedLanguage);
+      
+      // Call your backend API endpoint
+      const response = await axios.post('/conversation/voice/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        }
+      });
+      
+      if (response.data) {
+        // Show transcription and AI response
+        const { user_message, ai_response } = response.data;
+        
+        // Update the last user message with the actual transcription
+        setMessages(prevMessages => {
+          const newMessages = [...prevMessages];
+          newMessages[newMessages.length - 1] = {
+            content: user_message,
+            type: 'user'
+          };
+          return newMessages;
+        });
+        
+        // Add AI response
+        addMessage(ai_response, 'bot');
+        
+        // Play audio if enabled
+        if (audioEnabled && ai_response) {
+          speakText(ai_response);
+        }
+      } else {
+        // Handle error case
+        addMessage('Sorry, I couldn\'t understand your speech. Please try again.', 'bot');
+      }
+    } catch (error) {
+      console.error('Error processing audio:', error);
+      addMessage('Failed to process voice input. Please try again.', 'bot');
+    } finally {
+      setIsLoading(false);
+      setAudioBlob(null);
+    }
+  };
+  
   // Process the user inputs and send to unified endpoint
   const processUserInput = async () => {
     // Block if already loading
@@ -104,21 +197,14 @@ const MedicalChatbot = () => {
 
     const hasText = inputText.trim().length > 0;
     const hasImage = imageFile !== null;
-    const hasVoice = isListening;
     
     // Ensure we have at least one input type
-    if (!hasText && !hasImage && !hasVoice) {
+    if (!hasText && !hasImage) {
       return;
     }
 
-    // Stop listening if active
-    if (isListening) {
-      recognition.stop();
-      setIsListening(false);
-    }
-    
     // Prepare message content for display
-    let userMessageContent = hasText ? inputText : (hasVoice ? "Voice input..." : "");
+    let userMessageContent = hasText ? inputText : "";
     
     // Add message to chat
     if (hasImage) {
@@ -146,30 +232,20 @@ const MedicalChatbot = () => {
       }
       
       // Send request to unified endpoint
-      const response = await fetch('/chatbot/query/', {
-        method: 'POST',
-        body: formData,
-        // Don't set Content-Type header, let browser set it with boundary for FormData
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Server responded with status: ${response.status}`);
-      }
-      
-      const data = await response.json();
+      const response = await axios.post('/chatbot/query/', formData);
       
       // Process and display response
-      if (data.ai_response) {
-        addMessage(data.ai_response, 'bot');
+      if (response.data.ai_response) {
+        addMessage(response.data.ai_response, 'bot');
         
         // Play audio response if enabled and available
         if (audioEnabled) {
-          if (data.audio_url) {
+          if (response.data.audio_url) {
             // Play server-generated audio if available
-            playAudio(data.audio_url);
+            playAudio(response.data.audio_url);
           } else {
             // Otherwise use browser TTS
-            speakText(data.ai_response);
+            speakText(response.data.ai_response);
           }
         }
       } else {
@@ -199,30 +275,95 @@ const MedicalChatbot = () => {
     };
   };
   
+  // Helper function to break text into smaller chunks for better TTS performance
+  const chunkText = (text, maxLength) => {
+    if (text.length <= maxLength) return [text];
+    
+    const chunks = [];
+    let currentChunk = "";
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    
+    for (const sentence of sentences) {
+      // If adding this sentence would exceed maxLength, push the current chunk and start a new one
+      if (currentChunk.length + sentence.length > maxLength && currentChunk.length > 0) {
+        chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+      } else {
+        currentChunk += (currentChunk ? " " : "") + sentence;
+      }
+    }
+    
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    return chunks;
+  };
+  
+  // Helper function to set the voice
+  const setVoice = (speech, voices) => {
+    // Try to find an English voice
+    const preferredVoice = voices.find(voice => voice.lang.includes('en')) || voices[0];
+    
+    if (preferredVoice) {
+      speech.voice = preferredVoice;
+      console.log(`Using voice: ${preferredVoice.name}`);
+    }
+  };
+  
   // Enhanced text-to-speech function using browser TTS
   const speakText = (text) => {
     if ('speechSynthesis' in window) {
       // Cancel any ongoing speech
       window.speechSynthesis.cancel();
       
-      const speech = new SpeechSynthesisUtterance(text);
-      speech.lang = 'en-US';
+      // Break text into smaller chunks
+      const textChunks = chunkText(text, 200); // Split into ~200 character chunks
       
-      // Optional: Select a preferred voice
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find(voice => 
-        voice.name.includes('Female') || voice.name.includes('Google')
-      );
-      if (preferredVoice) {
-        speech.voice = preferredVoice;
-      }
+      // Queue each chunk
+      textChunks.forEach((chunk, index) => {
+        const speech = new SpeechSynthesisUtterance(chunk);
+        speech.lang = 'en-US';
+        speech.rate = 1.0;
+        speech.pitch = 1.0;
+        speech.volume = 1.0;
+        
+        // Wait until voices are actually loaded - this is crucial
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+          // If voices aren't loaded yet, set up a one-time event listener
+          window.speechSynthesis.onvoiceschanged = () => {
+            const availableVoices = window.speechSynthesis.getVoices();
+            setVoice(speech, availableVoices);
+            if (index === 0) {
+              // Only for first chunk, set speaking state
+              setIsSpeaking(true);
+              setIsPaused(false);
+            }
+            window.speechSynthesis.speak(speech);
+          };
+        } else {
+          // Voices are already loaded
+          setVoice(speech, voices);
+          if (index === 0) {
+            // Only for first chunk, set speaking state
+            setIsSpeaking(true);
+            setIsPaused(false);
+          }
+          window.speechSynthesis.speak(speech);
+        }
+        
+        // For the last chunk, set the onend event
+        if (index === textChunks.length - 1) {
+          speech.onend = () => {
+            setIsSpeaking(false);
+            setIsPaused(false);
+          };
+        }
+      });
       
-      // Keep track of the current utterance
-      currentUtteranceRef.current = speech;
-      setIsSpeaking(true);
-      setIsPaused(false);
-      
-      window.speechSynthesis.speak(speech);
+      // Store reference to the current context
+      currentUtteranceRef.current = { isChunked: true };
     }
   };
   
@@ -254,27 +395,6 @@ const MedicalChatbot = () => {
       cancelSpeech();
     }
     setAudioEnabled(!audioEnabled);
-  };
-  
-  // Start speech recognition
-  const startListening = () => {
-    if (!recognition || isLoading) return;
-    
-    recognition.start();
-    setIsListening(true);
-  };
-  
-  // Stop speech recognition and send if there's content
-  const stopListening = () => {
-    if (!recognition) return;
-    
-    recognition.stop();
-    setIsListening(false);
-    
-    // If there's text from speech recognition, send it
-    if (inputText.trim()) {
-      processUserInput();
-    }
   };
   
   // Handle file selection
@@ -312,6 +432,18 @@ const MedicalChatbot = () => {
             <h2 className="text-2xl font-bold text-blue-800 tracking-tight">Medical Chatbot</h2>
           </div>
           <div className="flex gap-2">
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              className="p-2 rounded-lg border border-gray-200 text-sm bg-white"
+              title="Select language for voice recognition"
+            >
+              {availableLanguages.map(lang => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
             <button
               onClick={toggleAudio}
               className="p-2 rounded-full hover:bg-blue-100 transition-all"
@@ -328,7 +460,7 @@ const MedicalChatbot = () => {
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
                 <FaRobot className="text-blue-200 text-5xl" />
-                <p className="text-center max-w-md">
+                <p className="text-center max-w-md text-lg">
                   Hello! I'm your medical assistant. You can ask questions, upload images, or use voice to communicate with me.
                 </p>
               </div>
@@ -359,7 +491,7 @@ const MedicalChatbot = () => {
                       <div className="font-medium mb-1">
                         {message.type === 'user' ? 'You' : 'Medical Bot'}
                       </div>
-                      <div className="whitespace-pre-wrap text-sm">{message.content}</div>
+                      <div className="whitespace-pre-wrap text-base">{message.content}</div>
                       
                       {/* Image preview if available */}
                       {message.imageUrl && (
@@ -400,7 +532,7 @@ const MedicalChatbot = () => {
                       <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                       <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                     </div>
-                    <span className="text-gray-500 text-sm">Thinking...</span>
+                    <span className="text-gray-500 text-base">Thinking...</span>
                   </div>
                 </div>
               </div>
@@ -418,7 +550,7 @@ const MedicalChatbot = () => {
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '300ms' }}></div>
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '600ms' }}></div>
             </div>
-            <span className="text-blue-700 font-medium">Speaking</span>
+            <span className="text-blue-700 font-medium text-base">Speaking</span>
             
             {!isPaused ? (
               <button
@@ -455,12 +587,12 @@ const MedicalChatbot = () => {
               <div className="w-3 h-3 bg-red-500 rounded-full"></div>
               <div className="absolute inset-0 w-3 h-3 bg-red-500 rounded-full animate-ping opacity-75"></div>
             </div>
-            <span className="text-red-700 font-medium">Listening to your voice...</span>
+            <span className="text-red-700 font-medium text-base">Recording your voice in {availableLanguages.find(l => l.code === selectedLanguage)?.name || 'selected language'}...</span>
             
             <button
-              onClick={stopListening}
+              onClick={stopRecording}
               className="p-2 rounded-full bg-white hover:bg-red-50 text-red-500 shadow-sm transition-colors"
-              title="Stop listening and send"
+              title="Stop recording and send"
             >
               <FaStopCircle size={16} />
             </button>
@@ -478,7 +610,7 @@ const MedicalChatbot = () => {
               />
             </div>
             <div className="flex-1">
-              <div className="text-amber-700 font-medium">Image ready: {imageType}</div>
+              <div className="text-amber-700 font-medium text-base">Image ready: {imageType}</div>
               <div className="text-amber-600 text-sm truncate">
                 {imageFile?.name}
               </div>
@@ -503,7 +635,7 @@ const MedicalChatbot = () => {
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Type your medical query..."
               disabled={isLoading}
-              className="flex-1 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
+              className="flex-1 border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm text-base"
               onKeyPress={(e) => {
                 if (e.key === 'Enter' && (inputText.trim() || imageFile)) {
                   processUserInput();
@@ -520,7 +652,7 @@ const MedicalChatbot = () => {
               }`}
             >
               <FaPaperPlane />
-              <span className="hidden md:inline">Send</span>
+              <span className="hidden md:inline text-base">Send</span>
             </button>
           </div>
           
@@ -528,16 +660,18 @@ const MedicalChatbot = () => {
             {/* Voice input buttons */}
             <div className="flex gap-2 md:w-1/2">
               <button
-                onClick={startListening}
-                disabled={isLoading || isListening}
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={isLoading}
                 className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-medium text-white shadow-sm ${
-                  isLoading || isListening
+                  isLoading
                     ? 'bg-gray-300 cursor-not-allowed' 
+                    : isRecording
+                    ? 'bg-red-500 hover:bg-red-600 transition-colors'
                     : 'bg-green-500 hover:bg-green-600 transition-colors'
                 }`}
               >
-                <FaMicrophone />
-                <span>Voice Input</span>
+                {isRecording ? <FaStopCircle /> : <FaMicrophone />}
+                <span className="text-base">{isRecording ? 'Stop Recording' : 'Voice Input'}</span>
               </button>
             </div>
             
@@ -554,7 +688,7 @@ const MedicalChatbot = () => {
                     className="hidden"
                   />
                   <FaUpload className="text-blue-500" />
-                  <span className="truncate text-sm md:text-base">
+                  <span className="truncate text-base">
                     {imageFile ? imageFile.name : 'Upload Image'}
                   </span>
                 </label>
@@ -564,7 +698,7 @@ const MedicalChatbot = () => {
                 value={imageType}
                 onChange={(e) => setImageType(e.target.value)}
                 disabled={isLoading}
-                className="border border-gray-200 rounded-xl px-2 py-3 bg-white shadow-sm text-sm"
+                className="border border-gray-200 rounded-xl px-2 py-3 bg-white shadow-sm text-base"
               >
                 <option value="injury">Injury</option>
                 <option value="xray">X-Ray</option>
