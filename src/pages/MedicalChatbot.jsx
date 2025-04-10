@@ -18,6 +18,7 @@ const MedicalChatbot = () => {
   // State variables for audio recording
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState(null);
+  const [transcribedText, setTranscribedText] = useState(''); // New state for transcribed text
   const [selectedLanguage, setSelectedLanguage] = useState('en'); // Default language
   
   // Refs
@@ -108,10 +109,8 @@ const MedicalChatbot = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         setAudioBlob(audioBlob);
         
-        // Immediately send audio to backend after recording
-        if (audioChunksRef.current.length > 0) {
-          processAudioInput(audioBlob);
-        }
+        // Instead of immediately sending the audio, we'll transcribe it first
+        processAudioForTranscription(audioBlob);
         
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
@@ -137,17 +136,17 @@ const MedicalChatbot = () => {
     }
   };
   
-  // Process recorded audio by sending to backend
-  const processAudioInput = async (audioBlob) => {
+  // Process audio for transcription only (new function)
+  const processAudioForTranscription = async (audioBlob) => {
     if (!audioBlob) return;
     
     setIsLoading(true);
-    addMessage('Processing voice input...', 'user');
     
     try {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
       formData.append('language', selectedLanguage);
+      formData.append('transcription_only', 'true'); // Signal to backend that we only want transcription
       
       // Call your backend API endpoint
       const response = await axios.post('/conversation/voice/', formData, {
@@ -156,34 +155,18 @@ const MedicalChatbot = () => {
         }
       });
       
-      if (response.data) {
-        // Show transcription and AI response
-        const { user_message, ai_response } = response.data;
-        
-        // Update the last user message with the actual transcription
-        setMessages(prevMessages => {
-          const newMessages = [...prevMessages];
-          newMessages[newMessages.length - 1] = {
-            content: user_message,
-            type: 'user'
-          };
-          return newMessages;
-        });
-        
-        // Add AI response
-        addMessage(ai_response, 'bot');
-        
-        // Play audio if enabled
-        if (audioEnabled && ai_response) {
-          speakText(ai_response);
-        }
+      if (response.data && response.data.user_message) {
+        // Set the transcribed text to the input field
+        setInputText(response.data.user_message);
+        // Also store it as transcribed text
+        setTranscribedText(response.data.user_message);
       } else {
         // Handle error case
-        addMessage('Sorry, I couldn\'t understand your speech. Please try again.', 'bot');
+        alert('Sorry, I couldn\'t understand your speech. Please try again or type your message.');
       }
     } catch (error) {
       console.error('Error processing audio:', error);
-      addMessage('Failed to process voice input. Please try again.', 'bot');
+      alert('Failed to process voice input. Please try again or type your message.');
     } finally {
       setIsLoading(false);
       setAudioBlob(null);
@@ -254,6 +237,7 @@ const MedicalChatbot = () => {
       
       // Clear inputs
       setInputText('');
+      setTranscribedText(''); // Clear transcribed text too
       clearImageUpload();
       
     } catch (error) {
@@ -592,7 +576,7 @@ const MedicalChatbot = () => {
             <button
               onClick={stopRecording}
               className="p-2 rounded-full bg-white hover:bg-red-50 text-red-500 shadow-sm transition-colors"
-              title="Stop recording and send"
+              title="Stop recording and process speech"
             >
               <FaStopCircle size={16} />
             </button>
@@ -622,6 +606,21 @@ const MedicalChatbot = () => {
             >
               <FaTrash size={16} />
             </button>
+          </div>
+        )}
+        
+        {/* Transcribed text indicator (New) */}
+        {transcribedText && inputText && (
+          <div className="bg-green-50 bg-opacity-70 backdrop-blur-sm rounded-xl p-3 mb-4 flex items-center gap-3 shadow-md">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+              <FaMicrophone className="text-green-600" />
+            </div>
+            <div className="flex-1">
+              <div className="text-green-700 font-medium text-base">Transcribed Speech</div>
+              <div className="text-green-600 text-sm truncate">
+                {inputText}
+              </div>
+            </div>
           </div>
         )}
         
