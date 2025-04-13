@@ -286,70 +286,59 @@ const MedicalChatbot = () => {
   
   // Helper function to set the voice
   const setVoice = (speech, voices) => {
-    // Try to find an English voice
-    const preferredVoice = voices.find(voice => voice.lang.includes('en')) || voices[0];
+    // Try to find a voice in the selected language
+    const preferredVoice = voices.find(voice => voice.lang.includes(selectedLanguage)) || voices[0];
     
     if (preferredVoice) {
       speech.voice = preferredVoice;
-      console.log(`Using voice: ${preferredVoice.name}`);
+      console.log(`Using voice: ${preferredVoice.name} (${preferredVoice.lang})`);
     }
   };
   
   // Enhanced text-to-speech function using browser TTS
-  const speakText = (text) => {
-    if ('speechSynthesis' in window) {
-      // Cancel any ongoing speech
-      window.speechSynthesis.cancel();
+// Modify the speakText function to use selectedLanguage
+const speakText = (text) => {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    
+    const textChunks = chunkText(text, 200);
+    
+    textChunks.forEach((chunk, index) => {
+      const speech = new SpeechSynthesisUtterance(chunk);
       
-      // Break text into smaller chunks
-      const textChunks = chunkText(text, 200); // Split into ~200 character chunks
+      // Use the currently selected language
+      speech.lang = selectedLanguage; // Instead of hardcoding 'en-US'
+      speech.rate = 1.0;
+      speech.pitch = 1.0;
+      speech.volume = 1.0;
       
-      // Queue each chunk
-      textChunks.forEach((chunk, index) => {
-        const speech = new SpeechSynthesisUtterance(chunk);
-        speech.lang = 'en-US';
-        speech.rate = 1.0;
-        speech.pitch = 1.0;
-        speech.volume = 1.0;
-        
-        // Wait until voices are actually loaded - this is crucial
-        const voices = window.speechSynthesis.getVoices();
-        if (voices.length === 0) {
-          // If voices aren't loaded yet, set up a one-time event listener
-          window.speechSynthesis.onvoiceschanged = () => {
-            const availableVoices = window.speechSynthesis.getVoices();
-            setVoice(speech, availableVoices);
-            if (index === 0) {
-              // Only for first chunk, set speaking state
-              setIsSpeaking(true);
-              setIsPaused(false);
-            }
-            window.speechSynthesis.speak(speech);
-          };
-        } else {
-          // Voices are already loaded
-          setVoice(speech, voices);
-          if (index === 0) {
-            // Only for first chunk, set speaking state
-            setIsSpeaking(true);
-            setIsPaused(false);
-          }
-          window.speechSynthesis.speak(speech);
-        }
-        
-        // For the last chunk, set the onend event
-        if (index === textChunks.length - 1) {
-          speech.onend = () => {
-            setIsSpeaking(false);
-            setIsPaused(false);
-          };
-        }
-      });
+      // Modify voice selection to use selected language
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        // Try to find a voice matching the selected language
+        const matchingVoice = voices.find(voice => voice.lang.includes(selectedLanguage)) || voices[0];
+        speech.voice = matchingVoice;
+      }
       
-      // Store reference to the current context
-      currentUtteranceRef.current = { isChunked: true };
-    }
-  };
+      // Rest of the function remains the same
+      if (index === 0) {
+        setIsSpeaking(true);
+        setIsPaused(false);
+      }
+      window.speechSynthesis.speak(speech);
+      
+      // For the last chunk, set the onend event
+      if (index === textChunks.length - 1) {
+        speech.onend = () => {
+          setIsSpeaking(false);
+          setIsPaused(false);
+        };
+      }
+    });
+    
+    currentUtteranceRef.current = { isChunked: true };
+  }
+};
   
   // Speech controls
   const pauseSpeech = () => {
