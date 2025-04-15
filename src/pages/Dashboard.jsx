@@ -6,45 +6,76 @@ import ChatbotAccess from '../components/ChatbotAccess';
 import MedicationReminders from '../components/MedicationReminder';
 import { Calendar, Activity, FileText, MessageSquare, Bell, Clipboard } from 'lucide-react';
 import { MedicationService } from '../services/MedicationService';
+import axios from 'axios';
 
 const Dashboard = () => {
   const [medicationCount, setMedicationCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [upcomingAppointmentsCount, setUpcomingAppointmentsCount] = useState(0);
+  const [isLoading, setIsLoading] = useState({
+    medications: true,
+    appointments: true
+  });
   
   // Function to update medication count
   const updateMedicationCount = async () => {
-    setIsLoading(true);
+    setIsLoading(prev => ({...prev, medications: true}));
     try {
       const data = await MedicationService.getTodayMedications();
-      // Filter only active/upcoming medications (not taken)
       const activeMeds = data.filter(med => med.status !== 'taken');
       setMedicationCount(activeMeds.length);
     } catch (error) {
       console.error('Failed to update medication count:', error);
     } finally {
-      setIsLoading(false);
+      setIsLoading(prev => ({...prev, medications: false}));
     }
   };
 
-  // Fetch medication count when component mounts
+  // Function to update upcoming appointments count
+  const updateAppointmentsCount = async () => {
+    setIsLoading(prev => ({...prev, appointments: true}));
+    try {
+      const response = await axios.get('/api/appointments/user_appointments/');
+      const upcoming = response.data.filter(apt => 
+        apt.status === 'upcoming' || apt.status === 'scheduled'
+      );
+      setUpcomingAppointmentsCount(upcoming.length);
+    } catch (error) {
+      console.error('Failed to update appointments count:', error);
+    } finally {
+      setIsLoading(prev => ({...prev, appointments: false}));
+    }
+  };
+
+  // Fetch counts when component mounts
   useEffect(() => {
     updateMedicationCount();
+    updateAppointmentsCount();
     
-    // Set up a refresh interval for the medication count
-    const intervalId = setInterval(() => {
+    // Set up refresh intervals
+    const medInterval = setInterval(() => {
       updateMedicationCount();
     }, 30000); // Refresh every 30 seconds
     
-    // Clean up interval on component unmount  
-    return () => clearInterval(intervalId);
+    const aptInterval = setInterval(() => {
+      updateAppointmentsCount();
+    }, 60000); // Refresh every minute
+    
+    return () => {
+      clearInterval(medInterval);
+      clearInterval(aptInterval);
+    };
   }, []);
 
-  // Sample data - in a real app this would come from API
   const stats = [
-    { title: 'Upcoming Appointments', value: '2', icon: <Calendar size={20} />, color: 'bg-blue-500' },
+    { 
+      title: 'Upcoming Appointments', 
+      value: isLoading.appointments ? '...' : upcomingAppointmentsCount.toString(), 
+      icon: <Calendar size={20} />, 
+      color: 'bg-blue-500' 
+    },
     { 
       title: 'Active Medications', 
-      value: isLoading ? '...' : medicationCount.toString(), 
+      value: isLoading.medications ? '...' : medicationCount.toString(), 
       icon: <FileText size={20} />, 
       color: 'bg-green-500' 
     },
@@ -75,11 +106,16 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Upcoming Appointments */}
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
-          <h2 className="flex items-center text-xl font-semibold text-slate-800 mb-4">
-            <Calendar size={18} className="mr-2 text-blue-500" />
-            Upcoming Appointments
-          </h2>
-          <AppointmentCalendar />
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="flex items-center text-xl font-semibold text-slate-800">
+              <Calendar size={18} className="mr-2 text-blue-500" />
+              Upcoming Appointments
+            </h2>
+            <span className="bg-blue-100 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded-full">
+              {upcomingAppointmentsCount} upcoming
+            </span>
+          </div>
+          <AppointmentCalendar onAppointmentChange={updateAppointmentsCount} />
         </div>
 
         {/* Medication Reminders */}
