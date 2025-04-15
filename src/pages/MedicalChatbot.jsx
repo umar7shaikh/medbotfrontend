@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FaMicrophone, FaStopCircle, FaVolumeUp, FaVolumeMute, FaPause, FaPlay, FaUpload, FaPaperPlane, FaRobot, FaUser, FaTrash } from 'react-icons/fa';
 import axios from 'axios';
+import AppointmentScheduler from './AppointmentScheduler';
 
 const MedicalChatbot = () => {
   // State variables
@@ -14,6 +15,8 @@ const MedicalChatbot = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
+
+  const [showAppointmentScheduler, setShowAppointmentScheduler] = useState(false);
   
   // State variables for audio recording
   const [isRecording, setIsRecording] = useState(false);
@@ -393,6 +396,10 @@ const speakText = (text) => {
       fileInputRef.current.value = '';
     }
   };
+
+  const startAppointmentFlow = () => {
+    setShowAppointmentScheduler(true);
+  };
   
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-blue-50 to-purple-50">
@@ -405,6 +412,12 @@ const speakText = (text) => {
             <h2 className="text-2xl font-bold text-blue-800 tracking-tight">Medical Chatbot</h2>
           </div>
           <div className="flex gap-2">
+            <button 
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg shadow transition-colors"
+              onClick={() => startAppointmentFlow()}
+            >
+              Schedule Appointment
+            </button>
             <select
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value)}
@@ -711,6 +724,16 @@ const speakText = (text) => {
           </div>
         </div>
       </div>
+      {showAppointmentScheduler && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="w-full max-w-3xl h-5/6">
+      <AppointmentScheduler 
+        onClose={() => setShowAppointmentScheduler(false)}
+        language={selectedLanguage}
+      />
+    </div>
+  </div>
+)}
     </div>
   );
 };
