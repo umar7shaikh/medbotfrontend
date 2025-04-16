@@ -1,5 +1,4 @@
-// src/components/MedicationModal.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, AlertCircle, Clock, Calendar, Package, Trash2 } from 'lucide-react';
 import { MedicationService } from '../services/MedicationService';
 
@@ -8,24 +7,49 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  
-  // Form state initialized with medication data or defaults
   const [formData, setFormData] = useState({
-    id: medication?.id || '',
-    name: medication?.name || '',
-    instructions: medication?.instructions || '',
-    next_dose: medication?.next_dose || '',
-    refill_date: medication?.refill_date || '',
-    remaining: medication?.remaining || '',
-    status: medication?.status || 'upcoming'
+    id: '',
+    name: '',
+    instructions: '',
+    next_dose: '',
+    refill_date: '',
+    remaining: '',
+    status: 'upcoming'
   });
+
+  // Reset form when medication prop changes
+  useEffect(() => {
+    if (medication) {
+      setFormData({
+        id: medication.id || '',
+        name: medication.name || '',
+        instructions: medication.instructions || '',
+        next_dose: medication.next_dose || '',
+        refill_date: medication.refill_date || new Date().toISOString().split('T')[0],
+        remaining: medication.remaining || '',
+        status: medication.status || 'upcoming'
+      });
+    } else {
+      // Reset to defaults for new medication
+      const now = new Date();
+      const nextHour = now.getHours() + 1;
+      const defaultTime = `${nextHour.toString().padStart(2, '0')}:00`;
+      
+      setFormData({
+        id: '',
+        name: '',
+        instructions: '',
+        next_dose: defaultTime,
+        refill_date: now.toISOString().split('T')[0],
+        remaining: '',
+        status: 'upcoming'
+      });
+    }
+  }, [medication]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prevData => ({
-      ...prevData,
-      [name]: value
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
@@ -34,17 +58,31 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
     setError(null);
     
     try {
-      if (medication?.id) {
-        // Update existing medication - note the change here to pass id separately
-        await MedicationService.updateMedication(formData.id, formData);
-      } else {
-        // Add new medication
-        await MedicationService.addMedication(formData);
+      // Validate remaining amount is a positive number
+      const remainingNum = Number(formData.remaining);
+      if (isNaN(remainingNum)) {
+        throw new Error('Remaining amount must be a number');
       }
+      if (remainingNum < 0) {
+        throw new Error('Remaining amount cannot be negative');
+      }
+
+      if (formData.id) {
+        await MedicationService.updateMedication(formData.id, {
+          ...formData,
+          remaining: remainingNum
+        });
+      } else {
+        await MedicationService.addMedication({
+          ...formData,
+          remaining: remainingNum
+        });
+      }
+      
       onSave();
       onClose();
     } catch (err) {
-      setError('Failed to save medication. Please try again.');
+      setError(err.message || 'Failed to save medication. Please try again.');
       console.error(err);
     } finally {
       setIsSubmitting(false);
@@ -65,7 +103,7 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
       onDelete(medication.id);
       onClose();
     } catch (err) {
-      setError('Failed to delete medication. Please try again.');
+      setError(err.message || 'Failed to delete medication. Please try again.');
       console.error(err);
     } finally {
       setIsDeleting(false);
@@ -73,7 +111,6 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
     }
   };
 
-  // Don't render anything if modal is closed
   if (!isOpen) return null;
 
   const inputClasses = "w-full px-3 py-2 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors";
@@ -105,7 +142,7 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div>
             <label className={labelClasses} htmlFor="name">
-              Medication Name
+              Medication Name*
             </label>
             <input
               className={inputClasses}
@@ -116,12 +153,13 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
               value={formData.name}
               onChange={handleChange}
               required
+              minLength={2}
             />
           </div>
           
           <div>
             <label className={labelClasses} htmlFor="instructions">
-              Instructions
+              Instructions*
             </label>
             <textarea
               className={`${inputClasses} min-h-20`}
@@ -132,6 +170,7 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
               onChange={handleChange}
               required
               rows={3}
+              minLength={5}
             />
           </div>
           
@@ -140,7 +179,7 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
               <label className={labelClasses} htmlFor="next_dose">
                 <span className="flex items-center">
                   <Clock size={16} className="mr-1" />
-                  Next Dose Time
+                  Next Dose Time*
                 </span>
               </label>
               <input
@@ -158,7 +197,7 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
               <label className={labelClasses} htmlFor="refill_date">
                 <span className="flex items-center">
                   <Calendar size={16} className="mr-1" />
-                  Refill Date
+                  Refill Date*
                 </span>
               </label>
               <input
@@ -169,6 +208,7 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
                 value={formData.refill_date}
                 onChange={handleChange}
                 required
+                min={new Date().toISOString().split('T')[0]}
               />
             </div>
           </div>
@@ -177,18 +217,20 @@ export const MedicationModal = ({ isOpen, onClose, medication, onSave, onDelete 
             <label className={labelClasses} htmlFor="remaining">
               <span className="flex items-center">
                 <Package size={16} className="mr-1" />
-                Remaining Amount
+                Remaining Amount*
               </span>
             </label>
             <input
               className={inputClasses}
               id="remaining"
               name="remaining"
-              type="text"
-              placeholder="e.g., 30 tablets, 60 capsules"
+              type="number"
+              placeholder="e.g., 30"
               value={formData.remaining}
               onChange={handleChange}
               required
+              min="0"
+              step="1"
             />
           </div>
           

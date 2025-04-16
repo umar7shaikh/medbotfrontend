@@ -4,18 +4,20 @@ import AppointmentCalendar from '../components/AppointmentCalendar';
 import HealthTrackers from '../components/HealthTrackers';
 import ChatbotAccess from '../components/ChatbotAccess';
 import MedicationReminders from '../components/MedicationReminder';
-import { Calendar, Activity, FileText, MessageSquare, Bell, Clipboard } from 'lucide-react';
+import { Calendar, Activity, FileText, Bell, Clipboard } from 'lucide-react';
 import { MedicationService } from '../services/MedicationService';
 import axios from 'axios';
 
 const Dashboard = () => {
   const [medicationCount, setMedicationCount] = useState(0);
   const [upcomingAppointmentsCount, setUpcomingAppointmentsCount] = useState(0);
+  const [healthScore, setHealthScore] = useState(null);
   const [isLoading, setIsLoading] = useState({
     medications: true,
-    appointments: true
+    appointments: true,
+    healthScore: true
   });
-  
+
   // Function to update medication count
   const updateMedicationCount = async () => {
     setIsLoading(prev => ({...prev, medications: true}));
@@ -46,10 +48,24 @@ const Dashboard = () => {
     }
   };
 
-  // Fetch counts when component mounts
+  // Function to fetch health score
+  const fetchHealthScore = async () => {
+    setIsLoading(prev => ({...prev, healthScore: true}));
+    try {
+      const response = await axios.get('/api/health-metrics/latest/');
+      setHealthScore(response.data?.health_score || 0);
+    } catch (error) {
+      console.error('Failed to fetch health score:', error);
+    } finally {
+      setIsLoading(prev => ({...prev, healthScore: false}));
+    }
+  };
+
+  // Fetch all data when component mounts
   useEffect(() => {
     updateMedicationCount();
     updateAppointmentsCount();
+    fetchHealthScore();
     
     // Set up refresh intervals
     const medInterval = setInterval(() => {
@@ -59,10 +75,15 @@ const Dashboard = () => {
     const aptInterval = setInterval(() => {
       updateAppointmentsCount();
     }, 60000); // Refresh every minute
+
+    const healthInterval = setInterval(() => {
+      fetchHealthScore();
+    }, 60000); // Refresh health score every minute
     
     return () => {
       clearInterval(medInterval);
       clearInterval(aptInterval);
+      clearInterval(healthInterval);
     };
   }, []);
 
@@ -79,15 +100,19 @@ const Dashboard = () => {
       icon: <FileText size={20} />, 
       color: 'bg-green-500' 
     },
-    { title: 'Health Score', value: '84%', icon: <Activity size={20} />, color: 'bg-indigo-500' },
-    { title: 'Messages', value: '5', icon: <MessageSquare size={20} />, color: 'bg-purple-500' },
+    { 
+      title: 'Health Score', 
+      value: isLoading.healthScore ? '...' : `${healthScore}%`, 
+      icon: <Activity size={20} />, 
+      color: 'bg-indigo-500' 
+    }
   ];
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-slate-800">My Health Dashboard</h1>
-        <p className="text-slate-500">Welcome back, Sarah</p>
+        <p className="text-slate-500">Welcome back</p>
       </div>
 
       {/* Quick Access to Chatbot */}
@@ -96,7 +121,7 @@ const Dashboard = () => {
       </div>
 
       {/* Stats Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         {stats.map((stat, index) => (
           <StatCard key={index} {...stat} />
         ))}
@@ -133,7 +158,7 @@ const Dashboard = () => {
             <Clipboard size={18} className="mr-2 text-indigo-500" />
             Health Trackers
           </h2>
-          <HealthTrackers />
+          <HealthTrackers onMetricsUpdate={fetchHealthScore} />
         </div>
       </div>
     </div>
