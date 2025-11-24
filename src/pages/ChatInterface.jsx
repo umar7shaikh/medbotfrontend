@@ -32,6 +32,7 @@ const ChatInterface = () => {
             >
               <option value="en">English</option>
               <option value="hi">हिंदी (Hindi)</option>
+              
               {/* Add more languages as needed */}
             </select>
             

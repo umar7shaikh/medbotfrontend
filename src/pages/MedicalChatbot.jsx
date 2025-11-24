@@ -39,9 +39,9 @@ const MedicalChatbot = () => {
     { code: 'de', name: 'German' },
     { code: 'zh', name: 'Chinese' },
     { code: 'hi', name: 'Hindi' },
-    { code: 'ar', name: 'Arabic' },
+    // { code: 'ar', name: 'Arabic' },
     { code: 'ru', name: 'Russian' },
-    { code: 'ja', name: 'Japanese' },
+    // { code: 'ja', name: 'Japanese' },
     { code: 'pt', name: 'Portuguese' },
   ];
 

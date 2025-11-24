@@ -9,6 +9,7 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
   const [formFields, setFormFields] = useState([]);
   const [formData, setFormData] = useState({});
   const [selectionHistory, setSelectionHistory] = useState({});
+  const [currentLanguage, setCurrentLanguage] = useState(language); // Track current language
   
   const chatContainerRef = useRef(null);
 
@@ -29,7 +30,7 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
     try {
       const response = await axios.post('/api/appointment-chatbot/', {
         step: 'initial',
-        language
+        language: currentLanguage // Use tracked language
       });
 
       setMessages([
@@ -37,6 +38,11 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
       ]);
       setOptions(response.data.options || []);
       setCurrentStep(response.data.next_step);
+      
+      // Update language from response if provided
+      if (response.data.language) {
+        setCurrentLanguage(response.data.language);
+      }
     } catch (error) {
       console.error('Error starting chatbot:', error);
       setMessages([
@@ -64,11 +70,11 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
 
     setLoading(true);
     try {
-      // Prepare the payload with all selection history
+      // Prepare the payload with all selection history and ALWAYS include language
       const payload = {
         step: currentStep,
         selection_id: option.id,
-        language,
+        language: currentLanguage, // Always send current language
         ...updatedHistory
       };
 
@@ -84,6 +90,11 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
       setOptions(response.data.options || []);
       setFormFields(response.data.form_fields || []);
       setCurrentStep(response.data.next_step);
+
+      // Update language from response if provided
+      if (response.data.language) {
+        setCurrentLanguage(response.data.language);
+      }
 
       // Save any additional selection data returned
       if (response.data.selected_category) {
@@ -159,7 +170,7 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
 
     // Show user input summary
     const formSummary = formFields.map(field => 
-      `${field.name}: ${formData[field.name]}`
+      `${field.label}: ${formData[field.name]}`
     ).join(', ');
     
     setMessages(prev => [
@@ -169,13 +180,15 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
 
     setLoading(true);
     try {
-      // Combine form data with selection history
+      // Combine form data with selection history and ALWAYS include language
       const payload = {
         step: currentStep,
-        language,
+        language: currentLanguage, // CRITICAL: Always include current language
         ...selectionHistory,
         ...formData
       };
+
+      console.log('Form submission payload:', payload); // Debug log
 
       const response = await axios.post('/api/appointment-chatbot/', payload);
 
@@ -184,6 +197,11 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
         ...prev,
         { type: 'bot', content: response.data.message }
       ]);
+
+      // Update language from response if provided
+      if (response.data.language) {
+        setCurrentLanguage(response.data.language);
+      }
 
       // If there's a confirmation step, update the UI
       if (response.data.next_step === 'confirmation') {
@@ -203,6 +221,9 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
       }
     } catch (error) {
       console.error('Error submitting form:', error);
+      if (error.response?.data?.language) {
+        setCurrentLanguage(error.response.data.language);
+      }
       setMessages(prev => [
         ...prev,
         { type: 'bot', content: 'Sorry, there was an error booking your appointment. Please try again.' }
@@ -217,7 +238,10 @@ const AppointmentScheduler = ({ onClose, language = 'en' }) => {
     <div className="flex flex-col h-full bg-gray-50 rounded-lg shadow-lg">
       {/* Header */}
       <div className="py-3 px-4 bg-blue-600 text-white rounded-t-lg flex justify-between items-center">
-        <h2 className="text-lg font-semibold">Schedule Appointment</h2>
+        <h2 className="text-lg font-semibold">
+          Schedule Appointment
+          <span className="text-xs ml-2 opacity-75">({currentLanguage.toUpperCase()})</span>
+        </h2>
         <button 
           onClick={onClose}
           className="text-white hover:bg-blue-700 rounded-full p-1"
